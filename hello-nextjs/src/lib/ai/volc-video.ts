@@ -121,6 +121,7 @@ export async function createVideoTask(
       url?: string;
       content?: string;
     }>;
+    characterReferenceUrls?: string[];
   } = {}
 ): Promise<VideoTaskResult> {
   if (!isVolcVideoConfigured()) {
@@ -134,6 +135,7 @@ export async function createVideoTask(
   const hasVideoMaterials = options.materials?.some((m) => m.type === "video" && m.url);
   const hasExtraImageMaterials = options.materials?.some((m) => m.type === "image" && m.url);
   const hasAudioMaterials = options.materials?.some((m) => m.type === "audio" && m.url);
+  const hasCharacterRefs = (options.characterReferenceUrls?.length ?? 0) > 0;
 
   // Build prompt text, incorporating text materials
   let fullPrompt = prompt ?? "";
@@ -148,7 +150,7 @@ export async function createVideoTask(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let params: any;
 
-  if (hasVideoMaterials || hasExtraImageMaterials || hasAudioMaterials) {
+  if (hasVideoMaterials || hasExtraImageMaterials || hasAudioMaterials || hasCharacterRefs) {
     // Use omni_reference mode for multi-modal input
     const imageFiles = [imageUrl];
     const videoFiles: string[] = [];
@@ -166,6 +168,14 @@ export async function createVideoTask(
       }
     }
 
+    // Append character reference images after scene image + material images
+    const charRefStartIndex = imageFiles.length + 1; // 1-indexed for @image_file_N
+    if (options.characterReferenceUrls) {
+      for (const url of options.characterReferenceUrls) {
+        imageFiles.push(url);
+      }
+    }
+
     // Build prompt with references
     let refPrompt = `@image_file_1 ${fullPrompt}`;
     if (videoFiles.length > 0) {
@@ -173,6 +183,14 @@ export async function createVideoTask(
     }
     if (audioFiles.length > 0) {
       refPrompt += ` 配合 @audio_file_1 的节奏`;
+    }
+
+    // Add character consistency instruction referencing the appended images
+    if (hasCharacterRefs) {
+      const charRefTags = options.characterReferenceUrls!.map(
+        (_, i) => `@image_file_${charRefStartIndex + i}`
+      ).join("、");
+      refPrompt += ` 保持角色与参考图片 ${charRefTags} 中的外观一致`;
     }
 
     params = {

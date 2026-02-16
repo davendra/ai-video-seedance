@@ -14,6 +14,8 @@ import {
   VolcVideoApiError,
 } from "@/lib/ai/volc-video";
 import { getMaterialsBySceneId } from "@/lib/db/materials";
+import { filterReferencesByScene } from "@/lib/ai/reference-matcher";
+import type { ReferenceImage } from "@/types/database";
 
 interface RouteParams {
   params: Promise<{ sceneId: string }>;
@@ -56,7 +58,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Verify project ownership
-    await getProjectById(projectId, user.id);
+    const project = await getProjectById(projectId, user.id);
 
     // Get the scene
     const scene = await getSceneById(sceneId);
@@ -114,6 +116,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    // Filter reference images relevant to this scene's description
+    const allRefs = (project.reference_images ?? []) as unknown as ReferenceImage[];
+    const matchedRefs = filterReferencesByScene(allRefs, scene.description);
+    const characterReferenceUrls: string[] = [];
+    for (const ref of matchedRefs) {
+      const refUrl = ref.storage_path
+        ? await getPublicImageUrl(ref.storage_path, 3600)
+        : ref.url;
+      if (refUrl) characterReferenceUrls.push(refUrl);
+    }
+
     // Update scene video status to processing
     await updateSceneVideoStatus(sceneId, "processing");
 
@@ -127,6 +140,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           ratio: ratio ?? "16:9",
           watermark: false,
           materials,
+          characterReferenceUrls: characterReferenceUrls.length > 0 ? characterReferenceUrls : undefined,
         }
       );
 
