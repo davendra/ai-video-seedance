@@ -18,6 +18,7 @@ import {
   deleteOldSceneImages,
   getPublicImageUrl,
 } from "@/lib/db/media";
+import { filterReferencesByScene } from "@/lib/ai/reference-matcher";
 import type { ReferenceImage } from "@/types/database";
 
 interface RouteParams {
@@ -48,9 +49,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Get request body for projectId
+    // Get request body for projectId and optional feedback
     const body = await request.json().catch(() => ({}));
-    const { projectId } = body;
+    const { projectId, feedback } = body;
 
     if (!projectId || typeof projectId !== "string") {
       return NextResponse.json(
@@ -85,9 +86,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     await updateSceneImageStatus(sceneId, "processing");
 
     try {
-      // Check for reference images on the project
-      const referenceImages = (project.reference_images ?? []) as unknown as ReferenceImage[];
+      // Check for reference images on the project, filtered to this scene
+      const allRefs = (project.reference_images ?? []) as unknown as ReferenceImage[];
+      const referenceImages = filterReferencesByScene(allRefs, scene.description);
       let imageBase64: string;
+
+      // Build prompt from scene description + optional feedback
+      const prompt = feedback && typeof feedback === "string"
+        ? `${scene.description}\n\nAdditional instructions: ${feedback}`
+        : scene.description;
 
       if (referenceImages.length > 0) {
         // Resolve public URLs for reference images
@@ -98,14 +105,14 @@ export async function POST(request: Request, { params }: RouteParams) {
           )
         );
         imageBase64 = await generateEditImage(
-          scene.description,
+          prompt,
           refUrls,
           project.style ?? undefined,
           { size: "2K" }
         );
       } else {
         imageBase64 = await generateImage(
-          scene.description,
+          prompt,
           project.style ?? undefined,
           { size: "2K" }
         );

@@ -6,6 +6,7 @@ import { Spinner } from "@/components/ui/Spinner";
 interface ReferenceImage {
   storage_path: string | null;
   url: string;
+  name?: string;
 }
 
 interface ReferenceImageUploaderProps {
@@ -28,6 +29,8 @@ export function ReferenceImageUploader({
   const [urlInput, setUrlInput] = useState("");
   const [isAddingUrl, setIsAddingUrl] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [editingNameIndex, setEditingNameIndex] = useState<number | null>(null);
+  const [nameInput, setNameInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Lightbox keyboard navigation
@@ -183,6 +186,49 @@ export function ReferenceImageUploader({
     }
   };
 
+  const handleNameSave = async (index: number) => {
+    const img = images[index];
+    if (!img) return;
+
+    const trimmed = nameInput.trim();
+    // Skip if unchanged
+    if ((trimmed || undefined) === (img.name || undefined)) {
+      setEditingNameIndex(null);
+      return;
+    }
+
+    try {
+      const patchBody = img.storage_path
+        ? { storage_path: img.storage_path, name: trimmed }
+        : { url: img.url, name: trimmed };
+
+      const response = await fetch(
+        `/api/projects/${projectId}/reference-images`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error ?? "Failed to update name");
+        return;
+      }
+
+      setImages((prev) =>
+        prev.map((img, i) =>
+          i === index ? { ...img, name: trimmed || undefined } : img
+        )
+      );
+    } catch {
+      setError("Failed to update name. Please try again.");
+    } finally {
+      setEditingNameIndex(null);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -236,47 +282,74 @@ export function ReferenceImageUploader({
         {images.map((img, index) => {
           const imgKey = img.storage_path ?? img.url;
           return (
-          <div
-            key={imgKey}
-            className="group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
-            onClick={() => setLightboxIndex(index)}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={img.url}
-              alt="Reference"
-              className="h-full w-full object-cover"
-            />
-            {/* External URL badge */}
-            {!img.storage_path && (
-              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
-                URL
-              </span>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDelete(img.storage_path, img.url); }}
-              disabled={deletingPath === imgKey}
-              className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 disabled:opacity-50"
-              title="Remove"
+          <div key={imgKey} className="flex flex-col gap-1">
+            <div
+              className="group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
+              onClick={() => setLightboxIndex(index)}
             >
-              {deletingPath === imgKey ? (
-                <Spinner size="sm" />
-              ) : (
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={img.url}
+                alt={img.name ?? "Reference"}
+                className="h-full w-full object-cover"
+              />
+              {/* External URL badge */}
+              {!img.storage_path && (
+                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
+                  URL
+                </span>
               )}
-            </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(img.storage_path, img.url); }}
+                disabled={deletingPath === imgKey}
+                className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 disabled:opacity-50"
+                title="Remove"
+              >
+                {deletingPath === imgKey ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
+            {/* Name label / editor */}
+            {editingNameIndex === index ? (
+              <input
+                type="text"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onBlur={() => handleNameSave(index)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleNameSave(index);
+                  if (e.key === "Escape") setEditingNameIndex(null);
+                }}
+                autoFocus
+                placeholder="e.g. Ram"
+                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-xs text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              />
+            ) : (
+              <button
+                onClick={() => {
+                  setEditingNameIndex(index);
+                  setNameInput(img.name ?? "");
+                }}
+                className="w-full truncate rounded px-1 py-0.5 text-left text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                {img.name || "+ Add name"}
+              </button>
+            )}
           </div>
           );
         })}

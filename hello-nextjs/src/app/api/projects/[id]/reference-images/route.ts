@@ -217,6 +217,93 @@ export async function GET(request: Request, { params }: RouteParams) {
 }
 
 /**
+ * PATCH /api/projects/:id/reference-images - Update a reference image's name
+ * Body: { storage_path?: string, url?: string, name: string }
+ */
+export async function PATCH(request: Request, { params }: RouteParams) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: projectId } = await params;
+    const body = await request.json();
+    const { storage_path, url, name } = body;
+
+    if (typeof name !== "string") {
+      return NextResponse.json(
+        { error: "name is required and must be a string" },
+        { status: 400 }
+      );
+    }
+
+    if ((!storage_path || typeof storage_path !== "string") && (!url || typeof url !== "string")) {
+      return NextResponse.json(
+        { error: "storage_path or url is required to identify the reference image" },
+        { status: 400 }
+      );
+    }
+
+    const project = await getProjectById(projectId, user.id);
+    const currentRefs = (project.reference_images ?? []) as unknown as ReferenceImage[];
+
+    // Find the matching ref and update its name
+    let found = false;
+    const updatedRefs = currentRefs.map((ref) => {
+      const match = storage_path
+        ? ref.storage_path === storage_path
+        : ref.url === url;
+      if (match) {
+        found = true;
+        return { ...ref, name: name.trim() || undefined };
+      }
+      return ref;
+    });
+
+    if (!found) {
+      return NextResponse.json(
+        { error: "Reference image not found" },
+        { status: 404 }
+      );
+    }
+
+    const { error: updateError } = await supabase
+      .from("projects")
+      .update({
+        reference_images: JSON.parse(JSON.stringify(updatedRefs)),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", projectId);
+
+    if (updateError) {
+      console.error("Error updating reference image name:", updateError);
+      return NextResponse.json(
+        { error: "Failed to update reference image" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error updating reference image:", error);
+
+    if (error instanceof Error && error.message.includes("not found")) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(
+      { error: "Failed to update reference image" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * DELETE /api/projects/:id/reference-images - Remove a reference image
  * Body: { storage_path: string } OR { url: string }
  */

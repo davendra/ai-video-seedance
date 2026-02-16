@@ -49,7 +49,7 @@ export default async function ProjectDetailPage({
   const referenceImages: ReferenceImage[] = await Promise.all(
     rawRefs.map(async (ref) => {
       if (ref.storage_path) {
-        return { storage_path: ref.storage_path, url: await getSignedUrl(ref.storage_path) };
+        return { ...ref, url: await getSignedUrl(ref.storage_path) };
       }
       return ref;
     })

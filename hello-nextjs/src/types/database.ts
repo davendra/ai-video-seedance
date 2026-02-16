@@ -15,6 +15,7 @@ export type Json =
 export interface ReferenceImage {
   storage_path: string | null;
   url: string;
+  name?: string;
 }
 
 export interface Database {

@@ -18,6 +18,7 @@ import {
   deleteOldSceneImages,
   getPublicImageUrl,
 } from "@/lib/db/media";
+import { filterReferencesByScene } from "@/lib/ai/reference-matcher";
 import type { Image, ReferenceImage } from "@/types/database";
 
 interface GenerationResult {
@@ -29,7 +30,8 @@ interface GenerationResult {
 }
 
 /**
- * Generate image for a single scene (internal function)
+ * Generate image for a single scene (internal function).
+ * Accepts raw ReferenceImage[] and filters per-scene before resolving URLs.
  */
 async function generateSceneImage(
   userId: string,
@@ -38,11 +40,25 @@ async function generateSceneImage(
   orderIndex: number,
   description: string,
   style?: string,
-  referenceImageUrls?: string[]
+  referenceImages?: ReferenceImage[]
 ): Promise<GenerationResult> {
   try {
     // Update scene image status to processing
     await updateSceneImageStatus(sceneId, "processing");
+
+    // Filter references relevant to this scene, then resolve URLs
+    const filteredRefs = referenceImages
+      ? filterReferencesByScene(referenceImages, description)
+      : [];
+
+    let referenceImageUrls: string[] | undefined;
+    if (filteredRefs.length > 0) {
+      referenceImageUrls = await Promise.all(
+        filteredRefs.map((ref) =>
+          ref.storage_path ? getPublicImageUrl(ref.storage_path) : ref.url
+        )
+      );
+    }
 
     // Use Edit API when reference images are available
     let imageBase64: string;
@@ -162,16 +178,8 @@ export async function POST(request: Request) {
       await updateProjectStage(projectId, user.id, "images");
     }
 
-    // Resolve reference image URLs once before the loop
+    // Pass raw reference images — each scene will filter independently
     const referenceImages = (project.reference_images ?? []) as unknown as ReferenceImage[];
-    let referenceImageUrls: string[] | undefined;
-    if (referenceImages.length > 0) {
-      referenceImageUrls = await Promise.all(
-        referenceImages.map((ref) =>
-          ref.storage_path ? getPublicImageUrl(ref.storage_path) : ref.url
-        )
-      );
-    }
 
     // Generate images for all scenes sequentially
     // (Could be parallelized later with rate limiting considerations)
@@ -185,7 +193,7 @@ export async function POST(request: Request) {
         scene.order_index,
         scene.description,
         project.style ?? undefined,
-        referenceImageUrls
+        referenceImages.length > 0 ? referenceImages : undefined
       );
       results.push(result);
     }
