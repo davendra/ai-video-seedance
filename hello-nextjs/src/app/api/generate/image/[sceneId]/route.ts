@@ -9,13 +9,16 @@ import { getSceneById, updateSceneImageStatus } from "@/lib/db/scenes";
 import { getProjectById } from "@/lib/db/projects";
 import {
   generateImage,
+  generateEditImage,
   isGeminiImageConfigured,
   GeminiImageApiError,
 } from "@/lib/ai/gemini-image";
 import {
   uploadAndCreateImage,
   deleteOldSceneImages,
+  getPublicImageUrl,
 } from "@/lib/db/media";
+import type { ReferenceImage } from "@/types/database";
 
 interface RouteParams {
   params: Promise<{ sceneId: string }>;
@@ -82,14 +85,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     await updateSceneImageStatus(sceneId, "processing");
 
     try {
-      // Generate image using Volc API
-      const imageBase64 = await generateImage(
-        scene.description,
-        project.style ?? undefined,
-        {
-          size: "2K",
-        }
-      );
+      // Check for reference images on the project
+      const referenceImages = (project.reference_images ?? []) as unknown as ReferenceImage[];
+      let imageBase64: string;
+
+      if (referenceImages.length > 0) {
+        // Resolve public URLs for reference images
+        const refUrls = await Promise.all(
+          referenceImages.map((ref) => getPublicImageUrl(ref.storage_path))
+        );
+        imageBase64 = await generateEditImage(
+          scene.description,
+          refUrls,
+          project.style ?? undefined,
+          { size: "2K" }
+        );
+      } else {
+        imageBase64 = await generateImage(
+          scene.description,
+          project.style ?? undefined,
+          { size: "2K" }
+        );
+      }
 
       // Delete old images from storage and database
       await deleteOldSceneImages(sceneId);

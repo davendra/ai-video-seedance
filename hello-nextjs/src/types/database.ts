@@ -12,6 +12,11 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+export interface ReferenceImage {
+  storage_path: string;
+  url: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -23,6 +28,7 @@ export interface Database {
           story: string | null;
           style: string | null;
           stage: project_stage;
+          reference_images: Json;
           created_at: string;
           updated_at: string;
         };
@@ -33,6 +39,7 @@ export interface Database {
           story?: string | null;
           style?: string | null;
           stage?: project_stage;
+          reference_images?: Json;
           created_at?: string;
           updated_at?: string;
         };
@@ -43,6 +50,7 @@ export interface Database {
           story?: string | null;
           style?: string | null;
           stage?: project_stage;
+          reference_images?: Json;
           created_at?: string;
           updated_at?: string;
         };

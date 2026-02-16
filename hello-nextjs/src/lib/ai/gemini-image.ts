@@ -7,6 +7,7 @@
 const XSKILL_API_KEY = process.env.XSKILL_API_KEY;
 const XSKILL_BASE_URL = "https://api.xskill.ai/api/v3";
 const SEEDREAM_MODEL = "fal-ai/bytedance/seedream/v4.5/text-to-image";
+const SEEDREAM_EDIT_MODEL = "fal-ai/bytedance/seedream/v4.5/edit";
 
 // Polling configuration
 const POLL_INTERVAL_MS = 2000;
@@ -284,4 +285,101 @@ export async function regenerateImage(
   options?: { size?: string }
 ): Promise<string> {
   return generateImage(prompt, style, options);
+}
+
+/**
+ * Create an image edit task with reference images
+ */
+async function createEditTask(
+  prompt: string,
+  imageUrls: string[],
+  imageSize: string
+): Promise<string> {
+  const response = await fetch(`${XSKILL_BASE_URL}/tasks/create`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${XSKILL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: SEEDREAM_EDIT_MODEL,
+      params: {
+        prompt,
+        image_urls: imageUrls,
+        image_size: imageSize,
+        num_images: 1,
+      },
+      channel: null,
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  const data = (await response.json()) as TaskCreateResponse;
+
+  if (!response.ok) {
+    console.error("[seedream-edit] Task creation failed:", JSON.stringify(data));
+    throw new ImageApiError(
+      data.message || `Failed to create edit task: HTTP ${response.status}`,
+      response.status
+    );
+  }
+
+  if (data.code !== 200 || !data.data?.task_id) {
+    throw new ImageApiError(
+      data.message || `Failed to create edit task: code ${data.code}`,
+      data.code
+    );
+  }
+
+  console.log(`[seedream-edit] Task created: ${data.data.task_id} (cost: ${data.data.price} credits)`);
+  return data.data.task_id;
+}
+
+/**
+ * Generate an image using the Seedream 4.5 Edit API with reference images.
+ * Falls back to text-to-image when no reference images are provided.
+ * @param prompt - The scene description
+ * @param referenceImageUrls - Public URLs of reference images
+ * @param style - Optional visual style
+ * @param options - Additional options
+ * @returns Base64 encoded image data
+ */
+export async function generateEditImage(
+  prompt: string,
+  referenceImageUrls: string[],
+  style?: string,
+  options: { size?: string } = {}
+): Promise<string> {
+  if (!referenceImageUrls || referenceImageUrls.length === 0) {
+    return generateImage(prompt, style, options);
+  }
+
+  if (!XSKILL_API_KEY) {
+    throw new ImageApiError(
+      "Image generation is not configured. Please set XSKILL_API_KEY."
+    );
+  }
+
+  const stylePrompt = buildStylePrompt(style);
+  const fullPrompt = `${prompt}${stylePrompt}`;
+
+  const sizeMap: Record<string, string> = {
+    "1K": "auto",
+    "2K": "auto_2K",
+    "4K": "auto_4K",
+    "720p": "auto",
+    "1080p": "auto_2K",
+  };
+  const imageSize = sizeMap[options.size ?? ""] || "auto_2K";
+
+  console.log(`[seedream-edit] Generating image with ${referenceImageUrls.length} references: "${fullPrompt.substring(0, 80)}..."`);
+
+  // Step 1: Create edit task with reference images
+  const taskId = await createEditTask(fullPrompt, referenceImageUrls, imageSize);
+
+  // Step 2: Poll for completion (same polling logic)
+  const imageUrl = await pollTask(taskId);
+
+  // Step 3: Download and convert to base64
+  return downloadImageAsBase64(imageUrl);
 }

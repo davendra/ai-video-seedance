@@ -9,14 +9,16 @@ import { getScenesByProjectId, updateSceneImageStatus } from "@/lib/db/scenes";
 import { getProjectById, updateProjectStage } from "@/lib/db/projects";
 import {
   generateImage,
+  generateEditImage,
   isGeminiImageConfigured,
   GeminiImageApiError,
 } from "@/lib/ai/gemini-image";
 import {
   uploadAndCreateImage,
   deleteOldSceneImages,
+  getPublicImageUrl,
 } from "@/lib/db/media";
-import type { Image } from "@/types/database";
+import type { Image, ReferenceImage } from "@/types/database";
 
 interface GenerationResult {
   sceneId: string;
@@ -35,16 +37,24 @@ async function generateSceneImage(
   sceneId: string,
   orderIndex: number,
   description: string,
-  style?: string
+  style?: string,
+  referenceImageUrls?: string[]
 ): Promise<GenerationResult> {
   try {
     // Update scene image status to processing
     await updateSceneImageStatus(sceneId, "processing");
 
-    // Generate image using Volc API
-    const imageBase64 = await generateImage(description, style, {
-      size: "2K",
-    });
+    // Use Edit API when reference images are available
+    let imageBase64: string;
+    if (referenceImageUrls && referenceImageUrls.length > 0) {
+      imageBase64 = await generateEditImage(description, referenceImageUrls, style, {
+        size: "2K",
+      });
+    } else {
+      imageBase64 = await generateImage(description, style, {
+        size: "2K",
+      });
+    }
 
     // Delete old images from storage and database
     await deleteOldSceneImages(sceneId);
@@ -152,6 +162,15 @@ export async function POST(request: Request) {
       await updateProjectStage(projectId, user.id, "images");
     }
 
+    // Resolve reference image URLs once before the loop
+    const referenceImages = (project.reference_images ?? []) as unknown as ReferenceImage[];
+    let referenceImageUrls: string[] | undefined;
+    if (referenceImages.length > 0) {
+      referenceImageUrls = await Promise.all(
+        referenceImages.map((ref) => getPublicImageUrl(ref.storage_path))
+      );
+    }
+
     // Generate images for all scenes sequentially
     // (Could be parallelized later with rate limiting considerations)
     const results: GenerationResult[] = [];
@@ -163,7 +182,8 @@ export async function POST(request: Request) {
         scene.id,
         scene.order_index,
         scene.description,
-        project.style ?? undefined
+        project.style ?? undefined,
+        referenceImageUrls
       );
       results.push(result);
     }

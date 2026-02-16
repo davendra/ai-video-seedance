@@ -1,5 +1,6 @@
 import { Header } from "@/components/layout/Header";
 import { StageIndicator } from "@/components/project/StageIndicator";
+import { ReferenceImageUploader } from "@/components/project/ReferenceImageUploader";
 import { DraftStageView } from "@/components/scene/DraftStageView";
 import { SceneDescriptionList } from "@/components/scene/SceneDescriptionList";
 import { SceneImageList } from "@/components/scene/SceneImageList";
@@ -8,8 +9,10 @@ import { FreeSceneList } from "@/components/scene/FreeSceneList";
 import { CompletedProjectView } from "@/components/scene/CompletedProjectView";
 import { createClient } from "@/lib/supabase/server";
 import { getProjectById } from "@/lib/db/projects";
+import { getSignedUrl } from "@/lib/db/media";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import type { ReferenceImage } from "@/types/database";
 
 interface ProjectDetailPageProps {
   params: Promise<{
@@ -40,6 +43,15 @@ export default async function ProjectDetailPage({
 
   const freeScenes = project.scenes.filter((s) => s.mode === "free");
   const storyScenes = project.scenes.filter((s) => s.mode !== "free");
+
+  // Resolve fresh signed URLs for reference images
+  const rawRefs = (project.reference_images ?? []) as unknown as ReferenceImage[];
+  const referenceImages: ReferenceImage[] = await Promise.all(
+    rawRefs.map(async (ref) => ({
+      storage_path: ref.storage_path,
+      url: await getSignedUrl(ref.storage_path),
+    }))
+  );
 
   const styleNames: Record<string, string> = {
     realistic: "Realistic",
@@ -169,10 +181,16 @@ export default async function ProjectDetailPage({
             )}
 
             {project.stage === "images" && (
-              <SceneImageList
-                projectId={project.id}
-                scenes={storyScenes}
-              />
+              <>
+                <ReferenceImageUploader
+                  projectId={project.id}
+                  initialImages={referenceImages}
+                />
+                <SceneImageList
+                  projectId={project.id}
+                  scenes={storyScenes}
+                />
+              </>
             )}
 
             {project.stage === "videos" && (
