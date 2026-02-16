@@ -44,13 +44,15 @@ export default async function ProjectDetailPage({
   const freeScenes = project.scenes.filter((s) => s.mode === "free");
   const storyScenes = project.scenes.filter((s) => s.mode !== "free");
 
-  // Resolve fresh signed URLs for reference images
+  // Resolve fresh signed URLs for storage-based refs; keep external URLs as-is
   const rawRefs = (project.reference_images ?? []) as unknown as ReferenceImage[];
   const referenceImages: ReferenceImage[] = await Promise.all(
-    rawRefs.map(async (ref) => ({
-      storage_path: ref.storage_path,
-      url: await getSignedUrl(ref.storage_path),
-    }))
+    rawRefs.map(async (ref) => {
+      if (ref.storage_path) {
+        return { storage_path: ref.storage_path, url: await getSignedUrl(ref.storage_path) };
+      }
+      return ref;
+    })
   );
 
   const styleNames: Record<string, string> = {

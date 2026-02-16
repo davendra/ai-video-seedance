@@ -91,8 +91,11 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       if (referenceImages.length > 0) {
         // Resolve public URLs for reference images
+        // External URL refs are used directly; storage refs need getPublicImageUrl
         const refUrls = await Promise.all(
-          referenceImages.map((ref) => getPublicImageUrl(ref.storage_path))
+          referenceImages.map((ref) =>
+            ref.storage_path ? getPublicImageUrl(ref.storage_path) : ref.url
+          )
         );
         imageBase64 = await generateEditImage(
           scene.description,

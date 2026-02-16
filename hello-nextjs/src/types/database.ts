@@ -13,7 +13,7 @@ export type Json =
   | Json[];
 
 export interface ReferenceImage {
-  storage_path: string;
+  storage_path: string | null;
   url: string;
 }
 

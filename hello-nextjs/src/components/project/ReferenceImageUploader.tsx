@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import { Spinner } from "@/components/ui/Spinner";
 
 interface ReferenceImage {
-  storage_path: string;
+  storage_path: string | null;
   url: string;
 }
 
@@ -25,6 +25,8 @@ export function ReferenceImageUploader({
   const [isUploading, setIsUploading] = useState(false);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [isAddingUrl, setIsAddingUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = useCallback(
@@ -73,17 +75,66 @@ export function ReferenceImageUploader({
     [images.length, projectId]
   );
 
-  const handleDelete = async (storagePath: string) => {
+  const handleAddUrl = async () => {
+    const url = urlInput.trim();
+    if (!url) return;
+
     setError(null);
-    setDeletingPath(storagePath);
 
     try {
+      new URL(url);
+    } catch {
+      setError("Invalid URL format");
+      return;
+    }
+
+    if (images.length >= MAX_IMAGES) {
+      setError(`Maximum ${MAX_IMAGES} reference images allowed`);
+      return;
+    }
+
+    setIsAddingUrl(true);
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/reference-images`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error ?? "Failed to add URL");
+        return;
+      }
+
+      setImages((prev) => [...prev, data.referenceImage]);
+      setUrlInput("");
+    } catch {
+      setError("Failed to add URL. Please try again.");
+    } finally {
+      setIsAddingUrl(false);
+    }
+  };
+
+  const handleDelete = async (storagePath: string | null, url: string) => {
+    setError(null);
+    setDeletingPath(storagePath ?? url);
+
+    try {
+      const deleteBody = storagePath
+        ? { storage_path: storagePath }
+        : { url };
+
       const response = await fetch(
         `/api/projects/${projectId}/reference-images`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ storage_path: storagePath }),
+          body: JSON.stringify(deleteBody),
         }
       );
 
@@ -93,7 +144,11 @@ export function ReferenceImageUploader({
         return;
       }
 
-      setImages((prev) => prev.filter((img) => img.storage_path !== storagePath));
+      setImages((prev) =>
+        prev.filter((img) =>
+          storagePath ? img.storage_path !== storagePath : img.url !== url
+        )
+      );
     } catch {
       setError("Delete failed. Please try again.");
     } finally {
@@ -151,9 +206,11 @@ export function ReferenceImageUploader({
 
       {/* Thumbnail grid */}
       <div className="mb-3 grid grid-cols-4 gap-3">
-        {images.map((img) => (
+        {images.map((img) => {
+          const imgKey = img.storage_path ?? img.url;
+          return (
           <div
-            key={img.storage_path}
+            key={imgKey}
             className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -162,13 +219,19 @@ export function ReferenceImageUploader({
               alt="Reference"
               className="h-full w-full object-cover"
             />
+            {/* External URL badge */}
+            {!img.storage_path && (
+              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
+                URL
+              </span>
+            )}
             <button
-              onClick={() => handleDelete(img.storage_path)}
-              disabled={deletingPath === img.storage_path}
+              onClick={() => handleDelete(img.storage_path, img.url)}
+              disabled={deletingPath === imgKey}
               className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 disabled:opacity-50"
               title="Remove"
             >
-              {deletingPath === img.storage_path ? (
+              {deletingPath === imgKey ? (
                 <Spinner size="sm" />
               ) : (
                 <svg
@@ -187,7 +250,8 @@ export function ReferenceImageUploader({
               )}
             </button>
           </div>
-        ))}
+          );
+        })}
 
         {/* Upload drop zone */}
         {images.length < MAX_IMAGES && (
@@ -228,6 +292,29 @@ export function ReferenceImageUploader({
         onChange={handleFileChange}
         className="hidden"
       />
+
+      {/* URL input */}
+      {images.length < MAX_IMAGES && (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddUrl();
+            }}
+            placeholder="Or paste an image URL..."
+            className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500"
+          />
+          <button
+            onClick={handleAddUrl}
+            disabled={isAddingUrl || !urlInput.trim()}
+            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            {isAddingUrl ? <Spinner size="sm" /> : "Add URL"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

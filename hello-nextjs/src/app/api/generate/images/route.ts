@@ -167,7 +167,9 @@ export async function POST(request: Request) {
     let referenceImageUrls: string[] | undefined;
     if (referenceImages.length > 0) {
       referenceImageUrls = await Promise.all(
-        referenceImages.map((ref) => getPublicImageUrl(ref.storage_path))
+        referenceImages.map((ref) =>
+          ref.storage_path ? getPublicImageUrl(ref.storage_path) : ref.url
+        )
       );
     }
 
