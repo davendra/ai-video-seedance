@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Spinner } from "@/components/ui/Spinner";
 
 interface ReferenceImage {
@@ -27,7 +27,34 @@ export function ReferenceImageUploader({
   const [error, setError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [isAddingUrl, setIsAddingUrl] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Lightbox keyboard navigation
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setLightboxIndex(null);
+      } else if (e.key === "ArrowRight") {
+        setLightboxIndex((prev) =>
+          prev !== null ? (prev + 1) % images.length : null
+        );
+      } else if (e.key === "ArrowLeft") {
+        setLightboxIndex((prev) =>
+          prev !== null ? (prev - 1 + images.length) % images.length : null
+        );
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [lightboxIndex, images.length]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -206,12 +233,13 @@ export function ReferenceImageUploader({
 
       {/* Thumbnail grid */}
       <div className="mb-3 grid grid-cols-4 gap-3">
-        {images.map((img) => {
+        {images.map((img, index) => {
           const imgKey = img.storage_path ?? img.url;
           return (
           <div
             key={imgKey}
-            className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
+            className="group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800"
+            onClick={() => setLightboxIndex(index)}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -226,7 +254,7 @@ export function ReferenceImageUploader({
               </span>
             )}
             <button
-              onClick={() => handleDelete(img.storage_path, img.url)}
+              onClick={(e) => { e.stopPropagation(); handleDelete(img.storage_path, img.url); }}
               disabled={deletingPath === imgKey}
               className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 disabled:opacity-50"
               title="Remove"
@@ -313,6 +341,72 @@ export function ReferenceImageUploader({
           >
             {isAddingUrl ? <Spinner size="sm" /> : "Add URL"}
           </button>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxIndex !== null && images[lightboxIndex] && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          onClick={() => setLightboxIndex(null)}
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setLightboxIndex(null)}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* Previous arrow */}
+          {images.length > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxIndex((prev) =>
+                  prev !== null ? (prev - 1 + images.length) % images.length : null
+                );
+              }}
+              className="absolute left-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Image */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={images[lightboxIndex].url}
+            alt={`Reference ${lightboxIndex + 1}`}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Next arrow */}
+          {images.length > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxIndex((prev) =>
+                  prev !== null ? (prev + 1) % images.length : null
+                );
+              }}
+              className="absolute right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Counter */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-sm text-white">
+            {lightboxIndex + 1} / {images.length}
+          </div>
         </div>
       )}
     </div>
